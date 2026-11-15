@@ -7,6 +7,9 @@
  *
  * @copyright USTC-RoboWalker (c) 2023
  *
+ * @note 通用PID算法：比例、积分、微分及前馈计算。
+ * @note 先Init，再设置Target/Now，按固定周期调用TIM_Calculate_PeriodElapsedCallback。
+ * @note D_T必须与实际调用周期一致；本文件不负责底盘跑点。
  */
 
 #ifndef ALG_PID_H
@@ -138,9 +141,9 @@ protected:
 /* Exported function declarations --------------------------------------------*/
 
 /**
- * @brief 获取输出值
+ * @brief 获取累计积分误差
  *
- * @return float 输出值
+ * @return float 累计积分误差
  */
 inline float Class_PID::Get_Integral_Error() const
 {

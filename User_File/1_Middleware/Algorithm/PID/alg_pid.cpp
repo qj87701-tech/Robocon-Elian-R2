@@ -7,6 +7,9 @@
  *
  * @copyright USTC-RoboWalker (c) 2023
  *
+ * @note 通用PID算法：比例、积分、微分及前馈计算。
+ * @note 先Init，再设置Target/Now，按固定周期调用TIM_Calculate_PeriodElapsedCallback。
+ * @note D_T必须与实际调用周期一致；本文件不负责底盘跑点。
  */
 
 /* Includes ------------------------------------------------------------------*/

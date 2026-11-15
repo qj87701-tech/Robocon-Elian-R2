@@ -46,6 +46,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    User_File/3_Module/Arm/mod_arm_kinematics.cpp
+    User_File/3_Module/Arm/mod_arm_control.cpp
     User_File/1_Middleware/Algorithm/Basic/alg_basic.cpp
     User_File/1_Middleware/Algorithm/PID/alg_pid.cpp
     User_File/1_Middleware/Driver/CAN/drv_can.cpp
@@ -61,10 +63,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     User_File/2_Device/Motor/Motor_VESC/dvc_motor_vesc.cpp
     User_File/2_Device/NRF24L01/dvc_nrf24l01.cpp
     User_File/2_Device/Plotter/Vofa/dvc_vofa.cpp
-    User_File/3_Module/Chassis/Omni/mod_chassis_omni.cpp
-    User_File/3_Module/Chassis/Swerve/mod_chassis_swerve.cpp
+    User_File/3_Module/3swerve_chassis/tsk_chassis_resolve.cpp
     User_File/4_Task/tsk_motor_init/motor_init.cpp
-    User_File/4_Task/tsk_4swerve_chassis/tsk_chassis.cpp
+    User_File/3_Module/3swerve_chassis/tsk_chassis.cpp
     User_File/4_Task/tsk_config_and_callback/tsk_config_and_callback.cpp
     User_File/4_Task/tsk_debug/tsk_debug.cpp
     User_File/4_Task/tsk_remote/tsk_remote.cpp

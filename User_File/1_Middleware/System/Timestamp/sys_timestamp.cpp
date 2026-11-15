@@ -7,6 +7,9 @@
  *
  * @copyright USTC-RoboWalker (c) 2025
  *
+ * @note 时间工具：定时器时间戳及时间差计算。
+ * @note 本工程在任务初始化中绑定TIM5，溢出回调累加高位计数。
+ * @note 定时器频率和重装值须与实现一致；10ms任务调度另用HAL_GetTick。
  */
 
 /**

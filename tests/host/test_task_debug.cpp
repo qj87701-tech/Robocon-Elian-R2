@@ -6,10 +6,11 @@
 #include "test_assert.h"
 #include "1_Middleware/Driver/UART/drv_uart.h"
 #include "1_Middleware/Protocol/pro_upper/pro_upper.h"
-#include "4_Task/tsk_4swerve_chassis/tsk_chassis.h"
+#include "3_Module/3swerve_chassis/tsk_chassis.h"
 #include "4_Task/tsk_debug/tsk_debug.h"
 #include "4_Task/tsk_motor_init/motor_init.h"
 #include "4_Task/tsk_remote/tsk_remote.h"
+#include "4_Task/tsk_config_and_callback/tsk_config_and_callback.h"
 #include "usart.h"
 
 bool init_finished = false;
@@ -28,7 +29,6 @@ Struct_UART_Manage_Object UART8_Manage_Object{};
 Struct_UART_Manage_Object UART9_Manage_Object{};
 Struct_UART_Manage_Object UART10_Manage_Object{};
 
-Class_Motor_DM_Normal DM_J8006;
 Class_Motor_DM_Normal DM_Chassis_LF;
 Class_Motor_DM_Normal DM_Chassis_RF;
 Class_Motor_DM_Normal DM_Chassis_LB;
@@ -36,10 +36,14 @@ Class_Motor_DM_Normal DM_Chassis_RB;
 Class_Motor_VESC VESC_Chassis_LF;
 Class_Motor_VESC VESC_Chassis_RF;
 Class_Motor_VESC VESC_Chassis_LB;
-Class_Motor_VESC VESC_Chassis_RB;
 Struct_Chassis_Swerve_Diagnostic Chassis_Swerve_Diagnostic[Swerve_Wheel_Number]{};
 Class_SBUS_Receive SBUS_Receive;
 Struct_Remote_Chassis_Command Remote_Chassis_Command{};
+
+static Struct_Upper_Control_State Test_Upper_Control{};
+const Struct_Upper_Control_State &Upper_Get_Control_State() { return Test_Upper_Control; }
+static Struct_U8_Test_Result Test_U8_Result{};
+const Struct_U8_Test_Result &U8_Test_Get_Result() { return Test_U8_Result; }
 
 namespace
 {
@@ -49,7 +53,7 @@ int Transmit_Count = 0;
 int Set_K_P_Count = 0;
 int Set_K_D_Count = 0;
 int Set_Torque_Count = 0;
-Enum_Swerve_Wheel Last_Set_Wheel = Swerve_Wheel_RF;
+Enum_Swerve_Wheel Last_Set_Wheel = Swerve_Wheel_LB;
 float Last_Set_Value = 0.0f;
 std::uint32_t Test_Tick = 0U;
 std::string UART10_Output;
@@ -74,7 +78,6 @@ void Reset_Test()
     VESC_Chassis_LF.Get_Fake_State() = {};
     VESC_Chassis_RF.Get_Fake_State() = {};
     VESC_Chassis_LB.Get_Fake_State() = {};
-    VESC_Chassis_RB.Get_Fake_State() = {};
     for (std::uint8_t i = 0U; i < Swerve_Wheel_Number; i++)
     {
         Chassis_Swerve_Diagnostic[i] = {};
@@ -84,7 +87,7 @@ void Reset_Test()
     Set_K_P_Count = 0;
     Set_K_D_Count = 0;
     Set_Torque_Count = 0;
-    Last_Set_Wheel = Swerve_Wheel_RF;
+    Last_Set_Wheel = Swerve_Wheel_LB;
     Last_Set_Value = 0.0f;
     Test_Tick = 0U;
     UART10_Output.clear();
@@ -92,6 +95,9 @@ void Reset_Test()
     UART10_DMA_Length = 0U;
     UART10_Attempts = 0;
     UART10_Busy = false;
+    Test_Upper_Control = {};
+    Test_U8_Result = {};
+    Remote_Chassis_Command = {};
     Upper.Init();
     Debug_Init();
 }
@@ -129,24 +135,27 @@ void Configure_Wheel(Fake_VESC_State &vesc, Fake_Motor_State &dm, Struct_Chassis
     diagnostic.Steer_Homing_Status = Chassis_Swerve_Homing_Status_READY;
     diagnostic.Steer_Homing_Elapsed_Time = 120U;
     diagnostic.Steer_Target_Enable = true;
+    diagnostic.Drive_Status = Chassis_Swerve_Drive_Status_WAIT_STOP;
+    diagnostic.Drive_Stop_Stable_Cycles = 3;
+    diagnostic.Drive_Wait_Elapsed_Time = 200;
 }
 
 void Read_Frame(float *channels)
 {
-    assert(Transmit_Length == 24U * sizeof(float) + sizeof(std::uint32_t));
-    std::memcpy(channels, Transmit_Data, 24U * sizeof(float));
+    assert(Transmit_Length == 27U * sizeof(float) + sizeof(std::uint32_t));
+    std::memcpy(channels, Transmit_Data, 27U * sizeof(float));
     std::uint32_t tail = 0U;
-    std::memcpy(&tail, Transmit_Data + 24U * sizeof(float), sizeof(tail));
+    std::memcpy(&tail, Transmit_Data + 27U * sizeof(float), sizeof(tail));
     assert(tail == 0x7f800000U);
 }
 
-void Test_Debug_Emits_24_Channel_Frame_Every_10ms()
+void Test_Debug_Emits_27_Channel_Frame_Every_10ms()
 {
     Reset_Test();
-    Configure_Wheel(VESC_Chassis_LF.Get_Fake_State(), DM_Chassis_LF.Get_Fake_State(), Chassis_Swerve_Diagnostic[Swerve_Wheel_LF], 1.0f);
+    Configure_Wheel(VESC_Chassis_LF.Get_Fake_State(), DM_Chassis_LF.Get_Fake_State(), Chassis_Swerve_Diagnostic[Swerve_Wheel_F], 1.0f);
 
     Debug_Vofa_10ms_PeriodElapsedCallback();
-    float channels[24]{};
+    float channels[27]{};
     Read_Frame(channels);
     Assert_Near(channels[0], 60.0f);
     Assert_Near(channels[1], 30.0f);
@@ -172,6 +181,9 @@ void Test_Debug_Emits_24_Channel_Frame_Every_10ms()
     Assert_Near(channels[21], 1.0f);
     Assert_Near(channels[22], 3.0f);
     Assert_Near(channels[23], 120.0f);
+    Assert_Near(channels[24], 2.0f);
+    Assert_Near(channels[25], 3.0f);
+    Assert_Near(channels[26], static_cast<float>(VESC_Chassis_LF.Get_Control_Method()));
 
     Debug_Vofa_10ms_PeriodElapsedCallback();
     assert(Transmit_Count == 2);
@@ -180,16 +192,16 @@ void Test_Debug_Emits_24_Channel_Frame_Every_10ms()
 void Test_Debug_Uses_NaN_For_Invalid_Continuous_Feedback()
 {
     Reset_Test();
-    Configure_Wheel(VESC_Chassis_LF.Get_Fake_State(), DM_Chassis_LF.Get_Fake_State(), Chassis_Swerve_Diagnostic[Swerve_Wheel_LF], 1.0f);
+    Configure_Wheel(VESC_Chassis_LF.Get_Fake_State(), DM_Chassis_LF.Get_Fake_State(), Chassis_Swerve_Diagnostic[Swerve_Wheel_F], 1.0f);
     VESC_Chassis_LF.Get_Fake_State().status_1_valid = false;
     VESC_Chassis_LF.Get_Fake_State().status_4_valid = false;
     VESC_Chassis_LF.Get_Fake_State().status_5_valid = false;
     DM_Chassis_LF.Get_Fake_State().status = Motor_DM_Status_DISABLE;
-    Chassis_Swerve_Diagnostic[Swerve_Wheel_LF].Steer_Target_Enable = false;
-    Chassis_Swerve_Diagnostic[Swerve_Wheel_LF].Steer_Homing_Status = Chassis_Swerve_Homing_Status_WAIT_FEEDBACK;
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Steer_Target_Enable = false;
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Steer_Homing_Status = Chassis_Swerve_Homing_Status_WAIT_FEEDBACK;
 
     Debug_Vofa_10ms_PeriodElapsedCallback();
-    float channels[24]{};
+    float channels[27]{};
     Read_Frame(channels);
     assert(std::isnan(channels[1]));
     assert(std::isnan(channels[2]));
@@ -219,7 +231,7 @@ void Test_Debug_Stages_And_Applies_MIT_Commands_Once()
 {
     Reset_Test();
     Send_Command("dm_kp=8.5#");
-    assert(Set_K_P_Count == 1 && Last_Set_Wheel == Swerve_Wheel_LF);
+    assert(Set_K_P_Count == 1 && Last_Set_Wheel == Swerve_Wheel_F);
     Assert_Near(Last_Set_Value, 8.5f);
     Debug_10ms_PeriodElapsedCallback();
     assert(Set_K_P_Count == 1);
@@ -375,20 +387,82 @@ std::uint8_t UART_Transmit_Data(UART_HandleTypeDef *huart, std::uint8_t *data, c
     return HAL_OK;
 }
 
+static void Test_Swerve_Print_Identifies_Missing_Rear_Feedback()
+{
+    Reset_Test();
+    DM_Chassis_LF.Get_Fake_State().rx_update_count = 120U;
+    DM_Chassis_LF.Get_Fake_State().status = Motor_DM_Status_ENABLE;
+    DM_Chassis_LF.Get_Fake_State().control_status = Motor_DM_Control_Status_ENABLE;
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Steer_Homing_Status = Chassis_Swerve_Homing_Status_READY;
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_LB].Steer_Homing_Status = Chassis_Swerve_Homing_Status_WAIT_FEEDBACK;
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_RB].Steer_Homing_Status = Chassis_Swerve_Homing_Status_WAIT_FEEDBACK;
+    Debug_UART10_Print_Swerve_Data();
+    assert(UART10_Output.find("home=3,1,1 dm_rx=120,0,0 dm_on=1,0,0 dm_ctl=1,0,0 drive=0,0,0 wait_ms=0 stop=0\r\n") != std::string::npos);
+    assert(DM_Chassis_LF.Get_Fake_State().enter_count == 0);
+    assert(DM_Chassis_RF.Get_Fake_State().enter_count == 0);
+    assert(VESC_Chassis_LF.Get_Fake_State().control_omega == 0.0f);
+
+    UART10_Busy = false; UART10_Output.clear();
+    DM_Chassis_RF.Get_Fake_State().rx_update_count = 0xffffffffU;
+    DM_Chassis_RF.Get_Fake_State().status = Motor_DM_Status_ENABLE;
+    Debug_UART10_Print_Swerve_Data();
+    assert(UART10_Output.find("dm_rx=120,4294967295,0 dm_on=1,1,0 dm_ctl=1,0,0 drive=0,0,0 wait_ms=0 stop=0\r\n") != std::string::npos);
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Drive_Status = Chassis_Swerve_Drive_Status_WAIT_STOP;
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Drive_Wait_Elapsed_Time = 1230U;
+    Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Drive_Stop_Stable_Cycles = 7U;
+    UART10_Busy = false;
+    UART10_Output.clear();
+    Debug_UART10_Print_Swerve_Data();
+    assert(UART10_Output.find("drive=2,0,0 wait_ms=1230 stop=7\r\n") != std::string::npos);
+}
+
 int main()
 {
-    // 类入口同样使用原有轮组绑定和24通道协议。
+    Reset_Test();
+    Test_U8_Result.Status = U8_Test_Status_RUNNING;
+    Test_U8_Result.Motor_Mask = 6U;
+    auto &test_vesc = VESC_Chassis_RF.Get_Fake_State();
+    test_vesc.status_1_valid = true;
+    test_vesc.control_omega = 6.28318530718f;
+    test_vesc.now_omega = 3.14159265359f;
+    Debug_UART10_Print_U8_Test_Data();
+    assert(UART10_Output.find("U8 mode=SPEED state=1 mask=6") != std::string::npos);
+    assert(UART10_Output.find("id=2 enable=0 target_rpm=60.00 now_rpm=30.00 error_rpm=30.00") != std::string::npos);
+    assert(UART10_Output.find("id=3") != std::string::npos);
+    assert(UART10_Output.find("now_rpm=nan") != std::string::npos);
+    std::string u8_in_flight(reinterpret_cast<char *>(UART10_DMA_Buffer), UART10_DMA_Length);
+    test_vesc.control_omega = 12.56637061436f;
+    Debug_UART10_Print_U8_Test_Data(); Debug_UART10_Print_U8_Test_Data();
+    assert(std::string(reinterpret_cast<char *>(UART10_DMA_Buffer), UART10_DMA_Length) == u8_in_flight);
+    Test_Swerve_Print_Identifies_Missing_Rear_Feedback();
+    Reset_Test();
+    Test_Upper_Control.Configured = true;
+    Test_Upper_Control.Status = Upper_Control_Status_RUNNING;
+    Test_Upper_Control.Command = {1.0f, -2.0f, 0.5f, true, Chassis_Command_Source_UPPER};
+    Debug_UART10_Print_Upper_Control_Data();
+    assert(UART10_Output.find("UPPER_CTRL configured=1 source=2 status=3 fault=0 enable=1 speed=1.00,-2.00,0.50") != std::string::npos);
+    std::string in_flight(reinterpret_cast<char *>(UART10_DMA_Buffer), UART10_DMA_Length);
+    Test_Upper_Control.Fault = Upper_Control_Fault_TIMEOUT;
+    Debug_UART10_Print_Upper_Control_Data(); Debug_UART10_Print_Upper_Control_Data();
+    assert(std::string(reinterpret_cast<char *>(UART10_DMA_Buffer), UART10_DMA_Length) == in_flight);
+    // 类入口同样使用原有轮组绑定和27通道协议。
     Reset_Test();
     static Class_Debug_Control debug;
     debug.Init();
-    Configure_Wheel(VESC_Chassis_RF.Get_Fake_State(), DM_Chassis_RF.Get_Fake_State(), Chassis_Swerve_Diagnostic[Swerve_Wheel_RF], 2.0f);
-    debug.Set_Swerve_Wheel(Swerve_Wheel_RF);
+    Configure_Wheel(VESC_Chassis_RF.Get_Fake_State(), DM_Chassis_RF.Get_Fake_State(), Chassis_Swerve_Diagnostic[Swerve_Wheel_LB], 2.0f);
+    debug.Set_Swerve_Wheel(Swerve_Wheel_LB);
     debug.Vofa_TIM_10ms_PeriodElapsedCallback();
-    float class_channels[24]{};
+    float class_channels[27]{};
     Read_Frame(class_channels);
     Assert_Near(class_channels[0], 120.0f);
     Assert_Near(class_channels[8], 0.2f);
-    Test_Debug_Emits_24_Channel_Frame_Every_10ms();
+    Configure_Wheel(VESC_Chassis_LB.Get_Fake_State(), DM_Chassis_LB.Get_Fake_State(), Chassis_Swerve_Diagnostic[Swerve_Wheel_RB], 3.0f);
+    debug.Set_Swerve_Wheel(Swerve_Wheel_RB);
+    debug.Vofa_TIM_10ms_PeriodElapsedCallback();
+    Read_Frame(class_channels);
+    Assert_Near(class_channels[0], 180.0f);
+    Assert_Near(class_channels[8], 0.3f);
+    Test_Debug_Emits_27_Channel_Frame_Every_10ms();
     Test_Debug_Uses_NaN_For_Invalid_Continuous_Feedback();
     Test_Debug_Stages_And_Applies_MIT_Commands_Once();
     Test_Debug_Rejects_Invalid_And_Malformed_MIT_Commands();

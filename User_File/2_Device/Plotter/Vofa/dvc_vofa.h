@@ -7,6 +7,9 @@
  *
  * @copyright USTC-RoboWalker (c) 2025
  *
+ * @note VOFA JustFloat工具：浮点通道发送及名字:数值形式的调参命令解析。
+ * @note tsk_debug绑定UART9和数据地址，并在10ms任务内调用发送接口。
+ * @note 24通道的具体含义见tsk_debug.cpp；通道显示名称在VOFA端设置。
  */
 
 #ifndef DVC_VOFA_H
@@ -20,7 +23,7 @@
 /* Exported macros -----------------------------------------------------------*/
 
 #define VOFA_RX_VARIABLE_ASSIGNMENT_MAX_LENGTH (100)
-#define VOFA_DATA_MAX_NUMBER (24)
+#define VOFA_DATA_MAX_NUMBER (27)
 
 /* Exported types ------------------------------------------------------------*/
 

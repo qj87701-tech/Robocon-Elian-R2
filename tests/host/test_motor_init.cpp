@@ -44,23 +44,14 @@ void Assert_VESC_Motor(const Class_Motor_VESC &motor, const std::uint8_t vesc_id
     assert(state.control_omega == 0.0f);
 }
 
-void Test_J8006_And_Four_DM6220_Initialization_Contract()
+void Test_Four_DM6220_Initialization_Contract()
 {
     fake_sequence = 0;
+    Fake_DM_Init_Count = 0U;
+    Fake_VESC_Init_Count = 0U;
     Motor_Init();
-
-    const Fake_Motor_State &j8006 = DM_J8006.Get_Fake_State();
-    assert(DM_J8006_MASTER_ID == 0x55U);
-    assert(j8006.can_handler == &hfdcan1);
-    assert(j8006.init_rx_id == 0x55U);
-    assert(j8006.init_tx_id == 0x05U);
-    assert(j8006.method == Motor_DM_Control_Method_NORMAL_OMEGA);
-    assert(j8006.angle_max == 12.5f);
-    assert(j8006.omega_max == 45.0f);
-    assert(j8006.torque_max == 20.0f);
-    assert(j8006.control_omega == 0.0f);
-    assert(!j8006.motor_enable);
-    assert(j8006.enter_count == 0);
+    assert(Fake_VESC_Init_Count == 3U); // 只初始化ID1~3, 不再保留ID4 U8。
+    assert(Fake_DM_Init_Count == 4U); // 默认启动只初始化四台底盘DM
 
     assert(DM_CHASSIS_LF_MASTER_ID == 0x11U);
     assert(DM_CHASSIS_RF_MASTER_ID == 0x22U);
@@ -74,13 +65,12 @@ void Test_J8006_And_Four_DM6220_Initialization_Contract()
     Assert_VESC_Motor(VESC_Chassis_LF, 1U);
     Assert_VESC_Motor(VESC_Chassis_RF, 2U);
     Assert_VESC_Motor(VESC_Chassis_LB, 3U);
-    Assert_VESC_Motor(VESC_Chassis_RB, 4U);
 }
 
 }
 
 int main()
 {
-    Test_J8006_And_Four_DM6220_Initialization_Contract();
+    Test_Four_DM6220_Initialization_Contract();
     return 0;
 }

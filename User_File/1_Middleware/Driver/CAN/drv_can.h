@@ -13,6 +13,9 @@
  *
  * @copyright USTC-RoboWalker (c) 2023-2025
  *
+ * @note CAN底层：初始化、标准/扩展帧发送及接收回调分发。
+ * @note 任务层绑定接收回调，设备驱动负责解释报文；硬件配置见CubeMX。
+ * @note R2的CAN1接DM、CAN3接VESC；本文件不决定电机目标。
  */
 
 #ifndef DRV_CAN_H

@@ -7,6 +7,9 @@
  *
  * @copyright Copyright (c) 2026
  *
+ * @note HI06配置与数据类型：接收缓冲大小、离线超时及反馈字段。
+ * @note 配合dvc_imu_hi06使用，本文件不执行串口收发。
+ * @note 读取数据时同时检查在线状态及Valid有效标记。
  */
 
 #ifndef HI06_DEFINE_H

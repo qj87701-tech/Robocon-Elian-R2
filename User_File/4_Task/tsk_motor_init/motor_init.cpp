@@ -3,6 +3,10 @@
  * @brief 电机对象和初始化配置
  * @version 0.1
  * @date 2026-10-05 0.1 新建文档
+ *
+ * @note 电机绑定与初值：集中定义DM、VESC对象及CAN节点参数。
+ * @note Task_Init先调用Motor_Init，再初始化底盘，默认保持电机失能。
+ * @note 常改参数见同名头文件：ID、DM量程/MIT初值、VESC极对数及命令限幅。
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -13,13 +17,14 @@
 
 /* Private variables ---------------------------------------------------------*/
 
-static const Struct_Motor_J8006_Init_Parameter J8006_Parameter{};
 static const Struct_Motor_DM_Init_Parameter DM_Parameter{};
 static const Struct_Motor_VESC_Init_Parameter VESC_Parameter{};
 
 /* Exported variables --------------------------------------------------------*/
 
-Class_Motor_DM_Normal DM_J8006;
+Class_Motor_DM_Normal DM_Arm_Rotate;
+Class_Motor_DM_Normal DM_Arm_Big;
+Class_Motor_DM_Normal DM_Arm_Small;
 Class_Motor_DM_Normal DM_Chassis_LF;
 Class_Motor_DM_Normal DM_Chassis_RF;
 Class_Motor_DM_Normal DM_Chassis_LB;
@@ -27,12 +32,8 @@ Class_Motor_DM_Normal DM_Chassis_RB;
 Class_Motor_VESC VESC_Chassis_LF;
 Class_Motor_VESC VESC_Chassis_RF;
 Class_Motor_VESC VESC_Chassis_LB;
-Class_Motor_VESC VESC_Chassis_RB;
 
 /* Private function declarations ---------------------------------------------*/
-
-// 当前生产入口选择舵轮底盘，保留全向轮初始化供后续切换。
-[[maybe_unused]] static void Motor_Omni_Init();
 
 static void Motor_Swerve_Init();
 
@@ -41,33 +42,21 @@ static void Motor_VESC_Init();
 /* Function prototypes -------------------------------------------------------*/
 
 /**
- * @brief 初始化全部电机
+ * @brief 初始化底盘电机
  */
 void Motor_Init()
 {
-    // 达妙J8006电机, 速度控制模式
-    DM_J8006.Init(&hfdcan1, J8006_Parameter.Master_ID, J8006_Parameter.Motor_ID, Motor_DM_Control_Method_NORMAL_OMEGA, J8006_Parameter.Angle_Max, J8006_Parameter.Omega_Max, J8006_Parameter.Torque_Max);
-    DM_J8006.Set_Control_Omega(0.0f);
 
-    // Motor_Omni_Init();
     Motor_Swerve_Init();
     Motor_VESC_Init();
 }
 
-/**
- * @brief 初始化全向轮底盘电机
- */
-static void Motor_Omni_Init()
+/** @brief 绑定机械臂CAN1节点和各型号反馈量程；仅初始化，不发送使能。 */
+void Motor_Arm_Init()
 {
-    DM_Chassis_LF.Init(&hfdcan1, DM_CHASSIS_LF_MASTER_ID, DM_CHASSIS_LF_MOTOR_ID, Motor_DM_Control_Method_NORMAL_OMEGA, DM_Parameter.Angle_Max, DM_Parameter.Omega_Max, DM_Parameter.Torque_Max);
-    DM_Chassis_RF.Init(&hfdcan1, DM_CHASSIS_RF_MASTER_ID, DM_CHASSIS_RF_MOTOR_ID, Motor_DM_Control_Method_NORMAL_OMEGA, DM_Parameter.Angle_Max, DM_Parameter.Omega_Max, DM_Parameter.Torque_Max);
-    DM_Chassis_LB.Init(&hfdcan1, DM_CHASSIS_LB_MASTER_ID, DM_CHASSIS_LB_MOTOR_ID, Motor_DM_Control_Method_NORMAL_OMEGA, DM_Parameter.Angle_Max, DM_Parameter.Omega_Max, DM_Parameter.Torque_Max);
-    DM_Chassis_RB.Init(&hfdcan1, DM_CHASSIS_RB_MASTER_ID, DM_CHASSIS_RB_MOTOR_ID, Motor_DM_Control_Method_NORMAL_OMEGA, DM_Parameter.Angle_Max, DM_Parameter.Omega_Max, DM_Parameter.Torque_Max);
-
-    DM_Chassis_LF.Set_Control_Omega(0.0f);
-    DM_Chassis_RF.Set_Control_Omega(0.0f);
-    DM_Chassis_LB.Set_Control_Omega(0.0f);
-    DM_Chassis_RB.Set_Control_Omega(0.0f);
+    DM_Arm_Rotate.Init(&hfdcan1, DM_ARM_ROTATE_MASTER_ID, DM_ARM_ROTATE_ID, Motor_DM_Control_Method_NORMAL_ANGLE_OMEGA, DM_ARM_ANGLE_MAX, DM_ARM_ROTATE_OMEGA_MAX, DM_ARM_ROTATE_TORQUE_MAX);
+    DM_Arm_Big.Init(&hfdcan1, DM_ARM_BIG_MASTER_ID, DM_ARM_BIG_ID, Motor_DM_Control_Method_NORMAL_ANGLE_OMEGA, DM_ARM_ANGLE_MAX, DM_ARM_JOINT_OMEGA_MAX, DM_ARM_JOINT_TORQUE_MAX);
+    DM_Arm_Small.Init(&hfdcan1, DM_ARM_SMALL_MASTER_ID, DM_ARM_SMALL_ID, Motor_DM_Control_Method_NORMAL_ANGLE_OMEGA, DM_ARM_ANGLE_MAX, DM_ARM_JOINT_OMEGA_MAX, DM_ARM_JOINT_TORQUE_MAX);
 }
 
 /**
@@ -111,10 +100,8 @@ static void Motor_VESC_Init()
     VESC_Chassis_LF.Init(&hfdcan3, VESC_CHASSIS_LF_ID, VESC_Parameter.Pole_Pairs, VESC_Parameter.Gearbox_Rate, VESC_Parameter.ERPM_Max, VESC_Parameter.Current_Max, VESC_Parameter.Current_Brake_Max);
     VESC_Chassis_RF.Init(&hfdcan3, VESC_CHASSIS_RF_ID, VESC_Parameter.Pole_Pairs, VESC_Parameter.Gearbox_Rate, VESC_Parameter.ERPM_Max, VESC_Parameter.Current_Max, VESC_Parameter.Current_Brake_Max);
     VESC_Chassis_LB.Init(&hfdcan3, VESC_CHASSIS_LB_ID, VESC_Parameter.Pole_Pairs, VESC_Parameter.Gearbox_Rate, VESC_Parameter.ERPM_Max, VESC_Parameter.Current_Max, VESC_Parameter.Current_Brake_Max);
-    VESC_Chassis_RB.Init(&hfdcan3, VESC_CHASSIS_RB_ID, VESC_Parameter.Pole_Pairs, VESC_Parameter.Gearbox_Rate, VESC_Parameter.ERPM_Max, VESC_Parameter.Current_Max, VESC_Parameter.Current_Brake_Max);
 
     VESC_Chassis_LF.Set_Motor_Enable(false);
     VESC_Chassis_RF.Set_Motor_Enable(false);
     VESC_Chassis_LB.Set_Motor_Enable(false);
-    VESC_Chassis_RB.Set_Motor_Enable(false);
 }

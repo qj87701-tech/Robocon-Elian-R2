@@ -10,6 +10,9 @@
  *
  * @copyright USTC-RoboWalker (c) 2023-2025
  *
+ * @note UART底层：空闲中断DMA接收、发送及回调分发。
+ * @note 先UART_Init绑定回调，数据解析交给协议或设备层。
+ * @note DMA发送缓冲需持续有效，UART_Transmit_Data可能返回BUSY。
  */
 
 /* Includes ------------------------------------------------------------------*/

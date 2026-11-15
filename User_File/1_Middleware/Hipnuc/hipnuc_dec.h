@@ -1,3 +1,10 @@
+/**
+ * @file hipnuc_dec.h
+ * @brief 超核官方解码库：从串口字节流识别数据帧并校验CRC。
+ * @note 由dvc_imu_hi06调用，本文件保留厂商接口和原始版权说明。
+ * @note 工程接收缓存、在线判断及对外单位转换见HI06设备封装。
+ */
+
 /*
  * Copyright (c) 2006-2026, HiPNUC
  *

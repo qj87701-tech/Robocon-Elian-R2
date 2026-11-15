@@ -1,13 +1,18 @@
 /**
- * @file mod_chassis_swerve.cpp
- * @brief 四舵轮底盘速度解算
+ * @file tsk_chassis_resolve.cpp
+ * @brief 正三角形三舵轮底盘速度解算
  * @version 0.1
  * @date 2026-10-05 0.1 新建文档
+ *
+ * @note 三舵轮运动学：车体速度转换为各轮舵向角度和行进角速度。
+ * @note tsk_chassis设置VX/VY/W和实际舵角后调用Calculate，再读取轮组目标。
+ * @note X向右、Y向前、W逆时针；轮径和正三角形边长在同名头文件修改，当前仍为暂定值。
+ * @note 本文件只计算，不发送CAN，不负责回零或电机使能。
  */
 
 /* Includes ------------------------------------------------------------------*/
 
-#include "mod_chassis_swerve.h"
+#include "tsk_chassis_resolve.h"
 
 #include <math.h>
 
@@ -15,7 +20,7 @@
 
 #define SWERVE_PI 3.14159265358979323846f
 #define SWERVE_2_PI (2.0f * SWERVE_PI)
-#define SWERVE_SQRT_2_DIV_2 0.70710678118f
+#define SWERVE_SQRT_3_DIV_2 0.86602540378f
 #define SWERVE_REVERSE_HYSTERESIS_ANGLE (10.0f * SWERVE_PI / 180.0f)
 
 // 静止轮组超过此速度才开始更新舵向，避免摇杆刚离开死区时目标角抖动, m/s
@@ -137,7 +142,7 @@ static bool Chassis_Swerve_Get_Nearest_Target(float Base_Angle, float Now_Angle,
 }
 
 /**
- * @brief 将底盘目标速度解算为四个轮组的速度和舵向角度
+ * @brief 将底盘目标速度解算为三个轮组的速度和舵向角度
  */
 void Class_Chassis_Swerve::Calculate()
 {
@@ -151,9 +156,10 @@ void Class_Chassis_Swerve::Calculate()
         return;
     }
 
-    float position = Parameter.Chassis_Radius * SWERVE_SQRT_2_DIV_2;
-    float position_x[Swerve_Wheel_Number] = {position, -position, position, -position};
-    float position_y[Swerve_Wheel_Number] = {position, position, -position, -position};
+    // 车体X向右、Y向前; 前中、左后、右后距中心均为R, 三轮中心构成正三角形。
+    float radius = Parameter.Chassis_Radius;
+    float position_x[Swerve_Wheel_Number] = {0.0f, -radius * SWERVE_SQRT_3_DIV_2, radius * SWERVE_SQRT_3_DIV_2};
+    float position_y[Swerve_Wheel_Number] = {radius, -radius / 2.0f, -radius / 2.0f};
 
     for (uint8_t i = 0; i < Swerve_Wheel_Number; i++)
     {

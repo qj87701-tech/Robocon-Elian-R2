@@ -55,6 +55,8 @@ struct Fake_VESC_State
     std::uint32_t status_5_update_count = 0U;
     std::int32_t control_erpm = 0;
     float control_omega = 0.0f;
+    float control_position = 0.0f;
+    float control_current = 0.0f;
     int init_sequence = 0;
     int receive_count = 0;
     int send_count = 0;
@@ -62,12 +64,14 @@ struct Fake_VESC_State
 };
 
 extern int fake_sequence;
+inline uint32_t Fake_VESC_Init_Count = 0U;
 
 class Class_Motor_VESC
 {
 public:
     void Init(FDCAN_HandleTypeDef *hcan, std::uint8_t vesc_id, std::uint8_t pole_pairs, float gearbox_rate, std::int32_t erpm_max, float current_max, float current_brake_max)
     {
+        ++Fake_VESC_Init_Count;
         State.can_handler = hcan;
         State.vesc_id = vesc_id;
         State.pole_pairs = pole_pairs;
@@ -116,6 +120,9 @@ public:
     std::uint32_t Get_Status_5_Update_Count() const { return State.status_5_update_count; }
     std::int32_t Get_Control_ERPM() const { return State.control_erpm; }
     float Get_Control_Omega() const { return State.control_omega; }
+    float Get_Control_Position() const { return State.control_position; }
+    Enum_Motor_VESC_Control_Method Get_Control_Method() const { return State.control_method; }
+    void Set_Control_Position(float position) { State.control_position=fmaxf(0.0f,fminf(360.0f,position)); }
 
     void Set_Motor_Enable(bool motor_enable)
     {
@@ -124,6 +131,8 @@ public:
         {
             State.control_erpm = 0;
             State.control_omega = 0.0f;
+            State.control_current = 0.0f;
+            State.control_position = 0.0f;
         }
     }
 
@@ -131,6 +140,28 @@ public:
     {
         State.control_omega = control_omega;
         State.control_erpm = static_cast<std::int32_t>(roundf(control_omega * 60.0f / (2.0f * 3.14159265358979323846f) * static_cast<float>(State.pole_pairs) * State.gearbox_rate));
+    }
+
+    void Set_Control_Method(Enum_Motor_VESC_Control_Method method)
+    {
+        if (State.control_method != method)
+        {
+            State.control_method = method;
+            State.control_erpm = 0;
+            State.control_omega = 0.0f;
+            State.control_current = 0.0f;
+            State.control_position = 0.0f;
+        }
+    }
+
+    void Set_Control_Current(float current)
+    {
+        State.control_current = fmaxf(-State.current_max, fminf(State.current_max, current));
+    }
+
+    void Set_Control_Current_Brake(float current)
+    {
+        State.control_current = fmaxf(0.0f, fminf(State.current_brake_max, current));
     }
 
     void CAN_RxCpltCallback() { ++State.receive_count; }

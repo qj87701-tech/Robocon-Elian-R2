@@ -4,6 +4,10 @@
  * @brief UART7上位机原始数据接收与固定长度组帧
  * @version 0.1
  * @date 2026-10-13 0.1 新建文档
+ *
+ * @note 上位机协议：UART7固定32字节组帧、CRC校验和接收统计。
+ * @note UART回调只缓存字节，TIM_10ms_PeriodElapsedCallback在前台解析。
+ * @note 速度字段为原始整数；缩放、限速及运动许可见tsk_config_and_callback。
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -57,6 +61,7 @@ void Class_Upper::Init()
     Status = Upper_Status_OFFLINE;
     Data = {};
     CRC_Check_Enable = false;
+    Frame_Callback = nullptr;
     Buffer_Reset();
 }
 
@@ -93,6 +98,7 @@ void Class_Upper::Set_CRC_Check_Enable(bool Enable)
 void Class_Upper::UART_RxCpltCallback(uint8_t *Buffer, uint16_t Length)
 {
     if (Buffer == nullptr || Length == 0U) { return; }
+    const uint32_t rx_tick = HAL_GetTick();
     Data.Rx_Byte_Count += Length;
     if (Rx_Overflow != 0U) { return; }
     for (uint16_t i = 0U; i < Length; i++)
@@ -105,6 +111,7 @@ void Class_Upper::UART_RxCpltCallback(uint8_t *Buffer, uint16_t Length)
             break;
         }
         Rx_Buffer[Rx_Write_Index] = Buffer[i];
+        Rx_Tick[Rx_Write_Index] = rx_tick;
         __DMB();
         Rx_Write_Index = next_index;
     }
@@ -125,6 +132,7 @@ int16_t Class_Upper::Read_Int16(const uint8_t *Buffer)
  */
 void Class_Upper::Data_Process()
 {
+    bool published = false;
     const uint32_t primask = __get_PRIMASK();
     __disable_irq();
     if (Rx_Overflow == 0U)
@@ -135,12 +143,15 @@ void Class_Upper::Data_Process()
         std::memcpy(Data.Data_Field, Frame_Buffer + UPPER_DATA_FIELD_INDEX, sizeof(Data.Data_Field));
         std::memcpy(Data.Extend_Data, Frame_Buffer + UPPER_EXTEND_DATA_INDEX, sizeof(Data.Extend_Data));
         std::memcpy(Data.Raw_Data, Frame_Buffer, sizeof(Data.Raw_Data));
-        Data.Last_Rx_Tick = HAL_GetTick();
+        Data.First_Rx_Tick = Frame_Rx_Tick[0];
+        Data.Last_Rx_Tick = Frame_Rx_Tick[UPPER_FRAME_LENGTH - 1U];
         Data.Frame_Count++;
         Data.Valid = true;
         Status = Upper_Status_ONLINE;
+        published = true;
     }
     __set_PRIMASK(primask);
+    if (published && Frame_Callback != nullptr) { Frame_Callback(Data); }
 }
 
 /**
@@ -154,28 +165,32 @@ void Class_Upper::Frame_Resync()
         {
             Frame_Length = static_cast<uint16_t>(Frame_Length - i);
             std::memmove(Frame_Buffer, Frame_Buffer + i, Frame_Length);
+            std::memmove(Frame_Rx_Tick, Frame_Rx_Tick + i, Frame_Length * sizeof(Frame_Rx_Tick[0]));
             return;
         }
     }
+    const uint32_t last_rx_tick = Frame_Rx_Tick[Frame_Length - 1U];
     Frame_Length = Frame_Buffer[Frame_Length - 1U] == UPPER_FRAME_HEAD_H ? 1U : 0U;
-    if (Frame_Length == 1U) { Frame_Buffer[0] = UPPER_FRAME_HEAD_H; }
+    if (Frame_Length == 1U) { Frame_Buffer[0] = UPPER_FRAME_HEAD_H; Frame_Rx_Tick[0] = last_rx_tick; }
 }
 
 /**
  * @brief 固定长度字节流组帧, 载荷中的55AA及77不提前结束报文
  */
-void Class_Upper::Frame_Byte_Process(uint8_t Byte)
+void Class_Upper::Frame_Byte_Process(uint8_t Byte, uint32_t Rx_Tick_MS)
 {
     if (Frame_Length == 0U)
     {
-        if (Byte == UPPER_FRAME_HEAD_H) { Frame_Buffer[Frame_Length++] = Byte; }
+        if (Byte == UPPER_FRAME_HEAD_H) { Frame_Rx_Tick[Frame_Length] = Rx_Tick_MS; Frame_Buffer[Frame_Length++] = Byte; }
         return;
     }
     if (Frame_Length == 1U && Byte != UPPER_FRAME_HEAD_L)
     {
         Frame_Length = Byte == UPPER_FRAME_HEAD_H ? 1U : 0U;
+        if (Frame_Length == 1U) { Frame_Rx_Tick[0] = Rx_Tick_MS; }
         return;
     }
+    Frame_Rx_Tick[Frame_Length] = Rx_Tick_MS;
     Frame_Buffer[Frame_Length++] = Byte;
     if (Frame_Length != UPPER_FRAME_LENGTH) { return; }
     if (Frame_Buffer[UPPER_FRAME_TAIL_INDEX] != UPPER_FRAME_TAIL)
@@ -206,8 +221,9 @@ void Class_Upper::TIM_10ms_PeriodElapsedCallback()
         __DMB();
         if (Rx_Overflow != 0U) { Buffer_Reset(); break; }
         const uint8_t byte = Rx_Buffer[Rx_Read_Index];
+        const uint32_t rx_tick = Rx_Tick[Rx_Read_Index];
         Rx_Read_Index = static_cast<uint16_t>((Rx_Read_Index + 1U) % UPPER_RX_BUFFER_SIZE);
-        Frame_Byte_Process(byte);
+        Frame_Byte_Process(byte, rx_tick);
         if (Rx_Overflow != 0U) { Buffer_Reset(); break; }
     }
     if (Status == Upper_Status_ONLINE && static_cast<uint32_t>(HAL_GetTick() - Data.Last_Rx_Tick) >= UPPER_OFFLINE_TIMEOUT)

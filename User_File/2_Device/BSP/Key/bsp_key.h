@@ -3,6 +3,10 @@
  * @brief 板载按键
  * @version 0.1
  * @date 2026-09-30 0.1 新建文档
+ *
+ * @note 板载按键工具：GPIO采样、消抖及按下/松开边沿判断。
+ * @note 先绑定GPIO和空闲电平，再每10ms调用采样接口，Get_Key_Status读取结果。
+ * @note 本工程当前任务调度未接入按键对象，保留供后续使用。
  */
 
 #ifndef BSP_KEY_H

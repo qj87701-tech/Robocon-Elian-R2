@@ -7,6 +7,9 @@
  *
  * @copyright USTC-RoboWalker (c) 2023
  *
+ * @note 达妙电机驱动：MIT等控制报文、反馈解析及角度连续化。
+ * @note motor_init绑定CAN和ID，底盘任务设置目标并调用周期发送接口。
+ * @note 本工程舵向采用DM6220 MIT模式；ID、量程和初值见motor_init.h。
  */
 
 /* Includes ------------------------------------------------------------------*/

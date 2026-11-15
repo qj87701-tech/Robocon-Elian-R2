@@ -7,6 +7,9 @@
  *
  * @copyright Copyright (c) 2026
  *
+ * @note HI06设备封装：接收缓存、HI91解帧、单位换算和在线判断。
+ * @note UART4回调缓存数据，任务每10ms处理后通过Get_Data读取。
+ * @note 姿态rad、角速度rad/s、加速度m/s^2；缓冲和超时见HI06_Define.h。
  */
 
 #ifndef DVC_IMU_HI06_H
@@ -28,19 +31,31 @@
 class Class_HI06
 {
 public:
+    // 初始化相关函数
+
     void Init();
+
+    // 接收与周期回调, UART只缓存、10ms前台解帧
 
     void UART_RxCpltCallback(uint8_t *Buffer, uint16_t Length);
     void TIM_10ms_PeriodElapsedCallback();
+
+    // 读变量
 
     inline Enum_HI06_Status Get_Status() const;
     inline const Struct_HI06_Data &Get_Data() const;
 
 protected:
+    // 读变量: IMU在线状态和工程单位反馈
+
     Enum_HI06_Status Status = HI06_Status_DISABLE;
     Struct_HI06_Data Data{};
+    // 内部变量: 官方解码状态
+
     hipnuc_raw_t Raw_Data{};
     hipnuc_sample_t Sample_Data{};
+
+    // 内部变量: UART接收环形缓存
 
     uint8_t Rx_Buffer[HI06_RX_BUFFER_SIZE]{};
     volatile uint16_t Rx_Write_Index = 0U;

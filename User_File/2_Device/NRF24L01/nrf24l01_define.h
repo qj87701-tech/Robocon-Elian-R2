@@ -1,3 +1,10 @@
+/**
+ * @file nrf24l01_define.h
+ * @brief NRF24L01寄存器、指令及位定义。
+ * @note 供dvc_nrf24l01访问无线芯片使用，不包含控制任务。
+ * @note 遥控报文布局见pro_sbus，板端引脚见驱动实现。
+ */
+
 #ifndef __NRF24L01_DEFINE_H
 #define __NRF24L01_DEFINE_H
 
@@ -43,7 +50,6 @@
 #define NRF24L01_FEATURE			0x1D	//使能高级功能，1字节
 
 #endif
-
 
 /*****************江协科技|版权所有****************/
 /*****************jiangxiekeji.com*****************/

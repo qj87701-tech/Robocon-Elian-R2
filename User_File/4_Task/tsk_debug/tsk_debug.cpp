@@ -3,11 +3,17 @@
  * @brief 调试数据输出任务
  * @version 0.1
  * @date 2026-10-11 0.1 新建文档
+ *
+ * @note 调试任务：UART9输出27路VOFA波形和接收DM调参，USART10输出文字诊断。
+ * @note 10ms应用调参并发送波形；100ms按正常底盘或DEBUG模式选择文字打印。
+ * @note I0~I7为U8/VESC，I8~I23为DM及回零状态，I24~I26为U8停车诊断，通道明细见Update_Vofa_Data。
+ * @note 观察轮组、调参名字与发送缓冲见同名头文件，DMA忙时本次打印可能跳过。
  */
 
 /* Includes ------------------------------------------------------------------*/
 
 #include "tsk_debug.h"
+#include "4_Task/tsk_config_and_callback/tsk_config_and_callback.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -24,7 +30,7 @@ static Class_Debug_Control Debug_Control;
  */
 void Class_Debug_Control::Init()
 {
-    Debug_Swerve_Wheel = Swerve_Wheel_LF;
+    Debug_Swerve_Wheel = Swerve_Wheel_F;
     Debug_Pending_Command_Index = -1;
     Debug_Pending_Command_Value = 0.0f;
     Debug_Pending_Command_Update_Count = 0U;
@@ -55,7 +61,10 @@ void Class_Debug_Control::Init()
                              static_cast<const void *>(&Debug_Vofa_Data[20]),
                              static_cast<const void *>(&Debug_Vofa_Data[21]),
                              static_cast<const void *>(&Debug_Vofa_Data[22]),
-                             static_cast<const void *>(&Debug_Vofa_Data[23]));
+                             static_cast<const void *>(&Debug_Vofa_Data[23]),
+                             static_cast<const void *>(&Debug_Vofa_Data[24]),
+                             static_cast<const void *>(&Debug_Vofa_Data[25]),
+                             static_cast<const void *>(&Debug_Vofa_Data[26]));
 }
 
 /**
@@ -176,8 +185,8 @@ void Class_Debug_Control::Set_Swerve_Wheel(Enum_Swerve_Wheel Wheel)
 }
 
 /**
- * @brief 每10ms发送一次当前轮组的固定24通道快照, 发送频率100Hz
- * @note USART9使用VOFA JustFloat协议, I0~I23含义见Debug_Update_Vofa_Data右侧注释
+ * @brief 每10ms发送一次当前轮组的固定27通道快照, 发送频率100Hz
+ * @note USART9使用VOFA JustFloat协议, I0~I26含义见Debug_Update_Vofa_Data右侧注释
  * @note 无效连续反馈使用NaN, 避免旧数据被误认为实时数据
  */
 void Class_Debug_Control::Vofa_TIM_10ms_PeriodElapsedCallback()
@@ -187,15 +196,24 @@ void Class_Debug_Control::Vofa_TIM_10ms_PeriodElapsedCallback()
 }
 
 /**
- * @brief 更新当前轮组的24个VOFA通道快照
- * @note I0~I7为VESC速度和电气量; I8~I18为DM6220 MIT调参量; I19~I23为状态及回零诊断
+ * @brief 更新当前轮组的27个VOFA通道快照
+ * @note I0~I7为VESC速度和电气量; I8~I18为DM6220 MIT调参量; I19~I23为状态及回零诊断，I24~I26为U8停车诊断
  * @note DM位置与角速度使用rad、rad/s; VESC转速为机械rpm, 不是ERPM
  */
 void Class_Debug_Control::Update_Vofa_Data()
 {
-    Class_Motor_DM_Normal *dm = Debug_DM_Motor[Debug_Swerve_Wheel];                                      // 当前观察轮组的DM6220
-    Class_Motor_VESC *vesc = Debug_VESC_Motor[Debug_Swerve_Wheel];                                       // 当前观察轮组的VESC
-    const Struct_Chassis_Swerve_Diagnostic &diagnostic = Chassis_Swerve_Diagnostic[Debug_Swerve_Wheel];  // 当前轮组舵向诊断
+    Enum_Swerve_Wheel observed_wheel = Debug_Swerve_Wheel;
+    if (Remote_Chassis_Command.Mode == REMOTE_MODE_DEBUG)
+    {
+        const uint8_t mask = U8_Test_Get_Result().Motor_Mask;
+        for (uint8_t i = 0U; i < Swerve_Wheel_Number; i++)
+        {
+            if ((mask & (1U << i)) != 0U) { observed_wheel = static_cast<Enum_Swerve_Wheel>(i); break; }
+        }
+    }
+    Class_Motor_DM_Normal *dm = Debug_DM_Motor[observed_wheel];
+    Class_Motor_VESC *vesc = Debug_VESC_Motor[observed_wheel];
+    const Struct_Chassis_Swerve_Diagnostic &diagnostic = Chassis_Swerve_Diagnostic[observed_wheel];
 
     bool dm_feedback_valid = (dm->Get_Status() == Motor_DM_Status_ENABLE);                                 // DM软件在线判断, 无效连续反馈填NaN
     Debug_Vofa_Data[0]   = vesc->Get_Control_Omega() * DEBUG_RAD_S_TO_RPM;                                 // I0  VESC目标机械转速(rpm)
@@ -224,6 +242,9 @@ void Class_Debug_Control::Update_Vofa_Data()
     Debug_Vofa_Data[21]  = static_cast<float>(diagnostic.Steer_Target_Enable);        // I21 DM6220舵向目标使能(0/1)
     Debug_Vofa_Data[22]  = static_cast<float>(diagnostic.Steer_Homing_Status);        // I22 回零状态: 0失能/1等反馈/2回零/3就绪/4超时
     Debug_Vofa_Data[23]  = static_cast<float>(diagnostic.Steer_Homing_Elapsed_Time);  // I23 DM6220回零耗时(ms)
+    Debug_Vofa_Data[24] = static_cast<float>(diagnostic.Drive_Status);              // I24 U8状态：0运行/1减零/2等停稳/3反馈丢失/4超时/5停稳
+    Debug_Vofa_Data[25] = diagnostic.Drive_Stop_Stable_Cycles;                      // I25 新低速反馈累计帧数
+    Debug_Vofa_Data[26] = static_cast<float>(vesc->Get_Control_Method());          // I26 控制模式：0RPM/1电流/2制动电流
 }
 
 /**
@@ -466,47 +487,16 @@ void Class_Debug_Control::UART10_Print_Remote_Data()
 }
 
 /**
- * @brief USART10打印DM_J8006速度控制测试电机数据, 不是舵向DM6220
- * @note enable: 软件使能指令0/1; status: 软件在线0/1; control_status: 驱动器反馈状态(0失能/1使能/8~14故障)
- * @note target/omega: 目标/实际角速度(rad/s); torque: 反馈转矩(N·m)
- * @note mos/rotor: 当前直接输出驱动内部温度(K), 未转换为℃, 与VOFA温度通道不同
- */
-void Class_Debug_Control::UART10_Print_Motor_Data()
-{
-    char control_omega[16];
-    char now_omega[16];
-    char now_torque[16];
-    char mos_temperature[16];
-    char rotor_temperature[16];
-    // DMA发送未完成前缓冲区必须保持有效
-    char (&tx_data)[180] = UART10_Motor_Data_Tx_Data;
-
-    UART10_Float_To_String(DM_J8006.Get_Control_Omega(), control_omega);
-    UART10_Float_To_String(DM_J8006.Get_Now_Omega(), now_omega);
-    UART10_Float_To_String(DM_J8006.Get_Now_Torque(), now_torque);
-    UART10_Float_To_String(DM_J8006.Get_Now_MOS_Temperature(), mos_temperature);
-    UART10_Float_To_String(DM_J8006.Get_Now_Rotor_Temperature(), rotor_temperature);
-
-    int tx_length = snprintf(tx_data, sizeof(tx_data),
-                             "DM enable=%u status=%u control_status=%u target=%s omega=%s torque=%s mos=%s rotor=%s\r\n",
-                             static_cast<unsigned int>(DM_J8006.Get_Motor_Enable()),
-                             static_cast<unsigned int>(DM_J8006.Get_Status()),
-                             static_cast<unsigned int>(DM_J8006.Get_Control_Status()),
-                             control_omega, now_omega, now_torque, mos_temperature, rotor_temperature);
-
-    if (tx_length > 0 && tx_length < static_cast<int>(sizeof(tx_data)))
-    {
-        UART_Transmit_Data(&huart10, reinterpret_cast<uint8_t *>(tx_data), static_cast<uint16_t>(tx_length));
-    }
-}
-
-/**
- * @brief USART10打印左前舵轮控制链路诊断数据
+ * @brief USART10打印前中舵轮控制链路及三轮回零状态
  * @note RC/motor_enable: 遥控在线/使能指令(0/1); mode: 遥控模式; speed: X、Y平移速度(m/s)及W角速度(rad/s)
  * @note DM enable/online/control: 使能指令/软件在线/驱动器反馈状态; target/target_omega: 目标位置(rad)/MIT目标角速度(rad/s)
  * @note DM now: 协议反馈位置(rad), 非VOFA I9连续位置; error: 舵向诊断角度误差(rad); ratio: 舵向误差限速比例(0~1)
  * @note VESC enable/online: 使能指令/软件在线(0/1); target_erpm/now_erpm: 目标/实际电气转速, U8机械rpm=ERPM/21
- * @note 当前固定打印左前轮DM ID 1和VESC ID 1, 不随VOFA观察轮组选择切换
+ * @note select: 遥控选择0无/1手动/2上位机/3独立U8测试; source: 实际速度来源含义相同
+ * @note home: 前中/左后/右后回零状态, 0失能/1等反馈/2回零中/3就绪/4超时
+ * @note dm_rx/dm_on/dm_ctl: 按前中/左后/右后顺序输出有效反馈累计数/软件在线/驱动反馈状态
+ * @note drive: 三轮行进保护状态, 0正常/1减零/2等停稳/3反馈失效/4反转超时; wait_ms/stop为ID1等待时间及新低速反馈数
+ * @note 单轮角度和VESC数据固定打印前中轮ID 1, 不随VOFA观察轮组选择切换
  */
 void Class_Debug_Control::UART10_Print_Swerve_Data()
 {
@@ -519,7 +509,7 @@ void Class_Debug_Control::UART10_Print_Swerve_Data()
     char dm_angle_error[16];
     char steer_speed_ratio[16];
     // DMA发送未完成前缓冲区必须保持有效
-    char (&tx_data)[320] = UART10_Swerve_Data_Tx_Data;
+    char (&tx_data)[512] = UART10_Swerve_Data_Tx_Data;
 
     UART10_Float_To_String(Remote_Chassis_Command.Speed_X, speed_x);
     UART10_Float_To_String(Remote_Chassis_Command.Speed_Y, speed_y);
@@ -527,11 +517,11 @@ void Class_Debug_Control::UART10_Print_Swerve_Data()
     UART10_Float_To_String(DM_Chassis_LF.Get_Control_Angle(), dm_target_angle);
     UART10_Float_To_String(DM_Chassis_LF.Get_Control_Omega(), dm_target_omega);
     UART10_Float_To_String(DM_Chassis_LF.Get_Now_Angle(), dm_now_angle);
-    UART10_Float_To_String(Chassis_Swerve_Diagnostic[Swerve_Wheel_LF].Steer_Angle_Error, dm_angle_error);
-    UART10_Float_To_String(Chassis_Swerve_Diagnostic[Swerve_Wheel_LF].Steer_Speed_Ratio, steer_speed_ratio);
+    UART10_Float_To_String(Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Steer_Angle_Error, dm_angle_error);
+    UART10_Float_To_String(Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Steer_Speed_Ratio, steer_speed_ratio);
 
     int tx_length = snprintf(tx_data, sizeof(tx_data),
-                             "SW RC=%u mode=%u motor_enable=%u speed=%s,%s,%s DM enable=%u online=%u control=%u target=%s target_omega=%s now=%s error=%s ratio=%s VESC enable=%u online=%u target_erpm=%ld now_erpm=%ld\r\n",
+                             "SW RC=%u mode=%u motor_enable=%u speed=%s,%s,%s DM enable=%u online=%u control=%u target=%s target_omega=%s now=%s error=%s ratio=%s VESC enable=%u online=%u target_erpm=%ld now_erpm=%ld select=%u source=%u home=%u,%u,%u dm_rx=%lu,%lu,%lu dm_on=%u,%u,%u dm_ctl=%u,%u,%u drive=%u,%u,%u wait_ms=%lu stop=%u\r\n",
                              static_cast<unsigned int>(Remote_Chassis_Command.Online),
                              static_cast<unsigned int>(Remote_Chassis_Command.Mode),
                              static_cast<unsigned int>(Remote_Chassis_Command.Motor_Enable),
@@ -543,7 +533,26 @@ void Class_Debug_Control::UART10_Print_Swerve_Data()
                              static_cast<unsigned int>(VESC_Chassis_LF.Get_Motor_Enable()),
                              static_cast<unsigned int>(VESC_Chassis_LF.Get_Status()),
                              static_cast<long>(VESC_Chassis_LF.Get_Control_ERPM()),
-                             static_cast<long>(VESC_Chassis_LF.Get_Now_ERPM()));
+                             static_cast<long>(VESC_Chassis_LF.Get_Now_ERPM()),
+                             static_cast<unsigned int>(Remote_Chassis_Command.Control_Source),
+                             static_cast<unsigned int>(Upper_Get_Control_State().Command.Source),
+                             static_cast<unsigned int>(Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Steer_Homing_Status),
+                             static_cast<unsigned int>(Chassis_Swerve_Diagnostic[Swerve_Wheel_LB].Steer_Homing_Status),
+                             static_cast<unsigned int>(Chassis_Swerve_Diagnostic[Swerve_Wheel_RB].Steer_Homing_Status),
+                             static_cast<unsigned long>(DM_Chassis_LF.Get_Rx_Update_Count()),
+                             static_cast<unsigned long>(DM_Chassis_RF.Get_Rx_Update_Count()),
+                             static_cast<unsigned long>(DM_Chassis_LB.Get_Rx_Update_Count()),
+                             static_cast<unsigned int>(DM_Chassis_LF.Get_Status()),
+                             static_cast<unsigned int>(DM_Chassis_RF.Get_Status()),
+                             static_cast<unsigned int>(DM_Chassis_LB.Get_Status()),
+                             static_cast<unsigned int>(DM_Chassis_LF.Get_Control_Status()),
+                             static_cast<unsigned int>(DM_Chassis_RF.Get_Control_Status()),
+                             static_cast<unsigned int>(DM_Chassis_LB.Get_Control_Status()),
+                             static_cast<unsigned int>(Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Drive_Status),
+                             static_cast<unsigned int>(Chassis_Swerve_Diagnostic[Swerve_Wheel_LB].Drive_Status),
+                             static_cast<unsigned int>(Chassis_Swerve_Diagnostic[Swerve_Wheel_RB].Drive_Status),
+                             static_cast<unsigned long>(Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Drive_Wait_Elapsed_Time),
+                             static_cast<unsigned int>(Chassis_Swerve_Diagnostic[Swerve_Wheel_F].Drive_Stop_Stable_Cycles));
 
     if (tx_length > 0 && tx_length < static_cast<int>(sizeof(tx_data)))
     {
@@ -559,6 +568,7 @@ void Class_Debug_Control::UART10_Print_Swerve_Data()
  */
 void Class_Debug_Control::UART10_Float_To_String(float Value, char *String)
 {
+    if (!isfinite(Value)) { snprintf(String, 16, "nan"); return; }
     bool negative = Value < 0.0f;
     if (negative)
     {
@@ -601,11 +611,6 @@ void Debug_UART10_Print_Remote_Data()
     Debug_Control.UART10_Print_Remote_Data();
 }
 
-void Debug_UART10_Print_Motor_Data()
-{
-    Debug_Control.UART10_Print_Motor_Data();
-}
-
 void Debug_UART10_Print_Swerve_Data()
 {
     Debug_Control.UART10_Print_Swerve_Data();
@@ -645,3 +650,73 @@ void Debug_UART10_Print_Upper_Status_Data()
 {
     Debug_Control.UART10_Print_Upper_Status_Data();
 }
+
+/**
+ * @brief USART10低频打印上位机速度配置、控制状态及物理速度
+ * @note 默认不周期启用; 双缓冲不覆盖正在发送的DMA数据, 不刷新速度有效期
+ */
+void Class_Debug_Control::UART10_Print_Upper_Control_Data()
+{
+    const auto &control = Upper_Get_Control_State();
+    char x[16], y[16], w[16];
+    UART10_Float_To_String(control.Command.Speed_X, x);
+    UART10_Float_To_String(control.Command.Speed_Y, y);
+    UART10_Float_To_String(control.Command.Speed_W, w);
+    char *buffer = UART10_Upper_Control_Tx_Data[UART10_Upper_Control_Tx_Index];
+    int length = snprintf(buffer, sizeof(UART10_Upper_Control_Tx_Data[0]),
+                          "UPPER_CTRL configured=%u source=%u status=%u fault=%u enable=%u speed=%s,%s,%s\r\n",
+                          unsigned(control.Configured), unsigned(control.Command.Source), unsigned(control.Status), unsigned(control.Fault),
+                          unsigned(control.Command.Motor_Enable), x, y, w);
+    if (length > 0 && length < int(sizeof(UART10_Upper_Control_Tx_Data[0])) && UART_Transmit_Data(&huart10, reinterpret_cast<uint8_t *>(buffer), uint16_t(length)) == HAL_OK)
+    {
+        UART10_Upper_Control_Tx_Index ^= 1U;
+    }
+}
+
+/**
+ * @brief 上位机速度接入状态的全局低频诊断入口
+ */
+void Debug_UART10_Print_Upper_Control_Data() { Debug_Control.UART10_Print_Upper_Control_Data(); }
+
+/**
+ * @brief 一帧打印全部测试U8, 目标/实际转速及误差为机械rpm
+ * @note state为失能0/运行1/故障2; drive保留原反转保护状态码
+ */
+void Class_Debug_Control::UART10_Print_U8_Test_Data()
+{
+    const auto &test = U8_Test_Get_Result();
+    const uint8_t motor_id[Swerve_Wheel_Number] = {VESC_CHASSIS_LF_ID, VESC_CHASSIS_RF_ID, VESC_CHASSIS_LB_ID};
+    char *buffer = UART10_U8_Test_Tx_Data[UART10_U8_Test_Tx_Index];
+    const size_t capacity = sizeof(UART10_U8_Test_Tx_Data[0]);
+    int length = snprintf(buffer, capacity, "U8 mode=SPEED state=%u mask=%u", unsigned(test.Status), unsigned(test.Motor_Mask));
+    for (uint8_t i = 0U; i < Swerve_Wheel_Number; i++)
+    {
+        if ((test.Motor_Mask & (1U << i)) == 0U) { continue; }
+        auto *motor = Debug_VESC_Motor[i];
+        char target[16], actual[16], error[16];
+        float target_rpm = motor->Get_Control_Omega() * DEBUG_RAD_S_TO_RPM;
+        float now = motor->Get_Status_1_Valid() ? motor->Get_Now_Omega() * DEBUG_RAD_S_TO_RPM : NAN;
+        UART10_Float_To_String(target_rpm, target);
+        UART10_Float_To_String(now, actual);
+        UART10_Float_To_String(target_rpm - now, error);
+        if (length <= 0 || size_t(length) >= capacity) { return; }
+        int added = snprintf(buffer + length, capacity - size_t(length),
+                             " | id=%u enable=%u target_rpm=%s now_rpm=%s error_rpm=%s valid=%u drive=%u",
+                             unsigned(motor_id[i]), unsigned(motor->Get_Motor_Enable()), target, actual, error,
+                             unsigned(motor->Get_Status_1_Valid()),
+                             unsigned(Chassis_Swerve_Diagnostic[i].Drive_Status));
+        if (added <= 0 || size_t(added) >= capacity - size_t(length)) { return; }
+        length += added;
+    }
+    if (length <= 0 || size_t(length + 2) >= capacity) { return; }
+    buffer[length++] = '\r'; buffer[length++] = '\n';
+    if (UART_Transmit_Data(&huart10, reinterpret_cast<uint8_t *>(buffer), uint16_t(length)) == HAL_OK)
+    {
+        UART10_U8_Test_Tx_Index ^= 1U;
+    }
+}
+
+/**
+ * @brief DEBUG独立U8测试的串口诊断入口
+ */
+void Debug_UART10_Print_U8_Test_Data() { Debug_Control.UART10_Print_U8_Test_Data(); }

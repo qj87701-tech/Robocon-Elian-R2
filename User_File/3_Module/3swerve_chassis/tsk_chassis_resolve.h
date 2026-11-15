@@ -1,18 +1,29 @@
 /**
- * @file mod_chassis_swerve.h
- * @brief 四舵轮底盘速度解算
+ * @file tsk_chassis_resolve.h
+ * @brief 正三角形三舵轮底盘速度解算
  * @version 0.1
  * @date 2026-10-05 0.1 新建文档
+ *
+ * @note 三舵轮运动学：车体速度转换为各轮舵向角度和行进角速度。
+ * @note tsk_chassis设置VX/VY/W和实际舵角后调用Calculate，再读取轮组目标。
+ * @note X向右、Y向前、W逆时针；轮径和正三角形边长在本头文件修改，当前仍为暂定值。
+ * @note 本文件只计算，不发送CAN，不负责回零或电机使能。
  */
 
-#ifndef MOD_CHASSIS_SWERVE_H
-#define MOD_CHASSIS_SWERVE_H
+#ifndef TSK_CHASSIS_RESOLVE_H
+#define TSK_CHASSIS_RESOLVE_H
 
 /* Includes ------------------------------------------------------------------*/
 
 #include <stdint.h>
 
 /* Exported macros -----------------------------------------------------------*/
+
+// 几何仍为暂定值, 并非实测尺寸。实测后只改轮径和三轮中心正三角形边长。
+#define SWERVE_WHEEL_DIAMETER_M 0.200f
+#define SWERVE_WHEEL_RADIUS_M (SWERVE_WHEEL_DIAMETER_M / 2.0f)
+#define SWERVE_CHASSIS_SIDE_LENGTH_M 0.450f
+#define SWERVE_CHASSIS_RADIUS_M (SWERVE_CHASSIS_SIDE_LENGTH_M / 1.73205080757f)
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -21,20 +32,23 @@
  */
 enum Enum_Swerve_Wheel : uint8_t
 {
-    Swerve_Wheel_RF = 0,
-    Swerve_Wheel_LF,
-    Swerve_Wheel_RB,
-    Swerve_Wheel_LB,
+    Swerve_Wheel_F = 0, // 前中, ID1
+    Swerve_Wheel_LB,    // 左后, ID2
+    Swerve_Wheel_RB,    // 右后, ID3
     Swerve_Wheel_Number,
 };
 
 /**
- * @brief 四舵轮底盘解算类
+ * @brief 正三角形三舵轮底盘解算类
  */
 class Class_Chassis_Swerve
 {
 public:
+    // 初始化相关函数
+
     void Init(float Wheel_Radius, float Chassis_Radius, float Steer_Angle_Limit = 12.0f);
+
+    // 写变量: 车体速度、实际舵角和轮速限制
 
     inline void Set_Speed_X(float Speed_X);
     inline void Set_Speed_Y(float Speed_Y);
@@ -44,9 +58,13 @@ public:
 
     void Reset_Wheel(Enum_Swerve_Wheel Wheel, float Hold_Angle);
 
+    // 读变量: 解算输出
+
     inline float Get_Target_Angle(Enum_Swerve_Wheel Wheel) const;
     inline float Get_Wheel_Omega(Enum_Swerve_Wheel Wheel) const;
     float Get_Steer_Angle_Error(Enum_Swerve_Wheel Wheel) const;
+
+    // 计算入口, 调用前先更新车体速度和实际舵角
 
     void Calculate();
 

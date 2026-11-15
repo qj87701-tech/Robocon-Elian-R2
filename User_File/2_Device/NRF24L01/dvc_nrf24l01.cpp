@@ -1,3 +1,10 @@
+/**
+ * @file dvc_nrf24l01.cpp
+ * @brief NRF24L01无线驱动：GPIO模拟SPI、寄存器配置和原始报文收发。
+ * @note tsk_remote先初始化模块，再每10ms查询并取出接收报文。
+ * @note 本工程使用31字节载荷；引脚见实现文件，协议解释见pro_sbus。
+ */
+
 #include "dvc_nrf24l01.h"
 
 #include <string.h>

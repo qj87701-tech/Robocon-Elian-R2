@@ -5,6 +5,10 @@
  * @date 2026-10-06 0.1 新建文档
  * @date 2026-10-07 0.2 增加六种VESC CAN控制方式
  * @date 2026-10-08 0.3 增加状态报文独立有效性、更新时间和更新计数
+ *
+ * @note VESC电调驱动：目标量换算、扩展CAN报文及STATUS反馈解析。
+ * @note motor_init绑定CAN3和节点ID，底盘任务每10ms调用发送接口。
+ * @note 接口角速度为机械rad/s，CAN速度命令为ERPM；斜坡和反转保护见tsk_chassis。
  */
 
 #ifndef DVC_MOTOR_VESC_H
@@ -80,7 +84,11 @@ struct Struct_Motor_VESC_Rx_Frame_State
 class Class_Motor_VESC
 {
 public:
+    // 初始化相关函数
+
     void Init(FDCAN_HandleTypeDef *hcan, uint8_t VESC_ID, uint8_t Pole_Pairs, float Gearbox_Rate, int32_t ERPM_Max, float Current_Max = 5.0f, float Current_Brake_Max = 5.0f);
+
+    // 读变量: 反馈、目标值及各STATUS报文有效性
 
     inline Enum_Motor_VESC_Status Get_Status() const;
     inline Enum_Motor_VESC_Control_Method Get_Control_Method() const;
@@ -111,6 +119,8 @@ public:
     inline float Get_Control_Duty() const;
     inline float Get_Control_Position() const;
     inline float Get_Control_Current_Rel() const;
+    // 写变量: 软件使能及目标量, 设置后由发送接口输出
+
     inline void Set_Motor_Enable(bool Motor_Enable);
     inline void Set_Control_Method(Enum_Motor_VESC_Control_Method Control_Method);
     inline void Set_Control_Omega(float Control_Omega);
@@ -120,15 +130,21 @@ public:
     inline void Set_Control_Position(float Control_Position);
     inline void Set_Control_Current_Rel(float Control_Current_Rel);
 
+    // 接收与周期回调函数
+
     void CAN_RxCpltCallback();
     void TIM_100ms_Alive_PeriodElapsedCallback();
     void TIM_Send_PeriodElapsedCallback();
 
 protected:
+    // 内部函数
+
     void Data_Process();
     void Output();
     void Reset_Control_Targets();
     bool Get_Rx_Frame_Valid(const Struct_Motor_VESC_Rx_Frame_State &Frame_State) const;
+
+    // 初始化相关常量: 总线、节点及命令限幅
 
     Struct_CAN_Manage_Object *CAN_Manage_Object = nullptr;
     uint8_t VESC_ID = 0U;
@@ -138,14 +154,20 @@ protected:
     float Current_Max = 0.0f;
     float Current_Brake_Max = 0.0f;
 
+    // 读写变量: 软件使能和控制模式
+
     bool Motor_Enable = false;
     Enum_Motor_VESC_Status Motor_VESC_Status = Motor_VESC_Status_DISABLE;
     Enum_Motor_VESC_Control_Method Control_Method = Motor_VESC_Control_Method_RPM;
+
+    // 读变量: 电调反馈及各状态报文时间戳
 
     Struct_Motor_VESC_Rx_Data Rx_Data;
     Struct_Motor_VESC_Rx_Frame_State Status_1_State;
     Struct_Motor_VESC_Rx_Frame_State Status_4_State;
     Struct_Motor_VESC_Rx_Frame_State Status_5_State;
+    // 写变量: 待发送的控制目标
+
     float Control_Omega = 0.0f;
     int32_t Control_ERPM = 0;
     float Control_Current = 0.0f;
@@ -459,7 +481,6 @@ inline void Class_Motor_VESC::Set_Control_Omega(float __Control_Omega)
         Control_ERPM = -ERPM_Max;
     }
 }
-
 
 /**
  * @brief 设置目标电机电流

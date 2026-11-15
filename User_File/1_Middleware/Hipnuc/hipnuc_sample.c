@@ -1,3 +1,10 @@
+/**
+ * @file hipnuc_sample.c
+ * @brief 超核官方测量数据类型及初始化工具。
+ * @note 配合hipnuc_dec使用，由dvc_imu_hi06转换为工程对外反馈。
+ * @note 有效字段须结合valid标记读取，原厂说明及版权保留在下方。
+ */
+
 /*
  * Copyright (c) 2006-2026, HiPNUC
  *

@@ -180,7 +180,7 @@ void Test_CRC_Disabled_And_Enabled()
     Test_Tick = 200U;
     Feed_And_Process(upper, bad.data(), 32U);
     assert(upper.Get_Data().Frame_Count == 2U && upper.Get_Data().CRC_Error_Count > 0U);
-    assert(upper.Get_Data().Last_Rx_Tick == 100U);
+    assert(upper.Get_Data().First_Rx_Tick == 100U && upper.Get_Data().Last_Rx_Tick == 100U);
     Test_Tick = 600U;
     upper.TIM_10ms_PeriodElapsedCallback();
     assert(!upper.Get_Data().Valid && upper.Get_Status() == Upper_Status_OFFLINE);
@@ -257,8 +257,45 @@ void Test_Overflow_And_Interrupt_Recovery()
 
 extern "C" std::uint32_t HAL_GetTick() { return Test_Tick; }
 
+void Test_Receive_Time_Is_Not_Parsing_Time()
+{
+    Class_Upper upper; upper.Init();
+    auto frame = Make_Frame();
+    Test_Tick = 100U;
+    upper.UART_RxCpltCallback(frame.data(), 32U);
+    Test_Tick = 300U;
+    upper.TIM_10ms_PeriodElapsedCallback();
+    assert(upper.Get_Data().First_Rx_Tick == 100U && upper.Get_Data().Last_Rx_Tick == 100U);
+    upper.Init();
+    Test_Tick = 100U;
+    upper.UART_RxCpltCallback(frame.data(), 31U);
+    upper.TIM_10ms_PeriodElapsedCallback();
+    Test_Tick = 250U;
+    upper.UART_RxCpltCallback(frame.data() + 31U, 1U);
+    upper.TIM_10ms_PeriodElapsedCallback();
+    assert(upper.Get_Data().First_Rx_Tick == 100U && upper.Get_Data().Last_Rx_Tick == 250U);
+    upper.Init();
+    Test_Tick = 100U;
+    upper.UART_RxCpltCallback(frame.data(), 1U);
+    upper.TIM_10ms_PeriodElapsedCallback();
+    Test_Tick = 200U;
+    upper.UART_RxCpltCallback(frame.data(), 1U); // 重复55作为新帧头, 首字节年龄必须更新。
+    upper.TIM_10ms_PeriodElapsedCallback();
+    Test_Tick = 210U;
+    upper.UART_RxCpltCallback(frame.data() + 1U, 31U);
+    upper.TIM_10ms_PeriodElapsedCallback();
+    assert(upper.Get_Data().First_Rx_Tick == 200U && upper.Get_Data().Last_Rx_Tick == 210U);
+    upper.Init();
+    Test_Tick = 100U;
+    upper.UART_RxCpltCallback(frame.data(), 32U);
+    Test_Tick = 600U;
+    upper.TIM_10ms_PeriodElapsedCallback();
+    assert(!upper.Get_Data().Valid && upper.Get_Status() == Upper_Status_OFFLINE);
+}
+
 int main()
 {
+    Test_Receive_Time_Is_Not_Parsing_Time();
     Test_Init_And_Empty_Input();
     Test_Raw_Signed_Speed_And_Fields();
     Test_All_Split_Positions();
@@ -270,5 +307,5 @@ int main()
     Test_CRC_Change_Drops_Pending_Data();
     Test_Timeout_Recovery_And_Tick_Wrap();
     Test_Overflow_And_Interrupt_Recovery();
-    std::puts("Upper protocol: 11 tests passed");
+    std::puts("Upper protocol: 12 tests passed");
 }

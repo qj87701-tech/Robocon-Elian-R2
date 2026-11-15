@@ -60,12 +60,14 @@ struct Fake_Motor_State
 };
 
 extern int fake_sequence;
+inline std::uint32_t Fake_DM_Init_Count = 0U;
 
 class Class_Motor_DM_Normal
 {
 public:
     void Init(const FDCAN_HandleTypeDef *hcan, const std::uint8_t &rx_id, const std::uint8_t &tx_id, const Enum_Motor_DM_Control_Method &method, const float &angle_max, const float &omega_max, const float &torque_max)
     {
+        Fake_DM_Init_Count++;
         State.can_handler = hcan;
         State.init_rx_id = rx_id;
         State.init_tx_id = tx_id;
